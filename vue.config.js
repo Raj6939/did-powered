@@ -1,25 +1,18 @@
-const { defineConfig } = require('@vue/cli-service')
-const NodePolyfillPlugin = require("node-polyfill-webpack-plugin");
-
-module.exports = 
-
-
-defineConfig({
-  
-  transpileDependencies: true,
-  publicPath: process.env.NODE_ENV === "production" ? "/" : "/",
-  configureWebpack: {
-    plugins: [new NodePolyfillPlugin(
-      {
-      }
-    )],
-    optimization: {
-      splitChunks: {
-        chunks: "all",
-      }
+module.exports = {
+  lintOnSave:false,
+  publicPath: process.env.NODE_ENV === 'production'
+    ? '/'
+    : '/',
+  chainWebpack: config => {
+    config.resolve.set("fallback",{
+      crypto: require.resolve("crypto-browserify"),
+      stream:require.resolve("stream-browserify"),      
+      fs:false,
+      path:false
+    });
+      config.plugins.delete("prefetch");
+    },
+  devServer: {
+      port: 9002
     }
-    
-  },
-
-  
-})
+}
