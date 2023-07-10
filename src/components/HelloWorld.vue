@@ -1,5 +1,6 @@
 <template>
   <div class="hello">
+    <h1>DID Powered</h1>
     <loading
       :active.sync="isLoading"
       :can-cancel="true"
@@ -15,7 +16,8 @@
     <div class="container">
       <b-card class="custom-card">
         <b-tabs>
-          <b-tab title="DID" active>
+          <b-tab title="DID"
+          :active="activeTab === 'tab1'">
             <b-button class="mt-4" @click="connectMetamask">{{
               address ? address : "Connect Metamask"
             }}</b-button>
@@ -49,8 +51,10 @@
               >Update DidDoc</b-button
             >
           </b-tab>
-          <b-tab title="Schema">
-            <div class="row">
+          <b-tab title="Schema"
+          :active="activeTab === 'tab2'">
+            <p v-if="showSchemaRegStatus" class="mt-4" >Issue Verifiable Credential for recently registered Schema<a class="ml-2" @click="goToTab('tab3')">{{signedSchema.id}}</a></p>
+            <div class="row">              
               <div class="w-50 pr-4">
                 <div class="form-group row pt-4">
                   <label class="col-sm-2 col-form-label" for="schemaName"
@@ -151,10 +155,14 @@
               </div>
             </div>
           </b-tab>
-          <b-tab title="Verifiable Credential">
+          <b-tab title="Verifiable Credential"
+          :active="activeTab === 'tab3'">                   
+          <b-tabs class="mt-4">
+            <b-tab title="Issue Credential">    
+            <p v-if="vcId" class="mt-4 blink" >Resolve Verifiable Credential Status and Perform Credential Revocation<a class="ml-2" style="cursor:pointer" @click="goToTab('tab4')">go to resolve</a></p>                     
             <div class="form-group row pt-4">
               <label class="col-sm-2 col-form-label" for="schemaName"
-                ><strong>Name<span style="color: red">*</span>:</strong></label
+                ><strong>Schema ID<span style="color: red">*</span>:</strong></label
               >
               <div class="col-sm-10">
                 <input
@@ -169,6 +177,7 @@
             </div>
             <b-button @click="resolveSchema">Resolve Schema</b-button>
             <br />
+            <p class="mt-4" v-if="issueCredAttributes.length">Enter values for Credential Attributes</p>
             <div v-for="(fields, index) in issueCredAttributes" :key="index">
               <input
                 type="text"
@@ -191,12 +200,43 @@
                 @json-change="onJsonChange"
               ></vue-json-editor>
             </div>
-            <!-- <b-button class="mr-4 mt-4" @click="generateCred"
-              >Generate VC</b-button
-            > -->
             <b-button class="mr-4 mt-4" @click="issueCred"
               >Sign and Issue VC</b-button
             >
+            </b-tab>
+            <b-tab title="Resolve Credential"
+            :active="activeTab === 'tab4'">
+              <div class="form-group row pt-4">
+              <label class="col-sm-2 col-form-label" for="schemaName"
+                ><strong>VC ID<span style="color: red">*</span>:</strong></label
+              >
+              <div class="col-sm-10">
+                <input
+                  type="text"
+                  class="form-control"
+                  id="schemaName"
+                  aria-describedby="schemaNameHelp"
+                  placeholder="Enter VC ID"
+                  v-model="vcId"
+                />
+              </div>
+            </div>
+            <b-button @click="resolveVcStatus">Resolve VC Status</b-button>
+            <vue-json-editor
+                v-if="credStatus"
+                class="mt-2"
+                v-model="credStatus"
+                :show-btns="false"
+                :expandedOnStart="true"
+                @json-change="onJsonChange"
+              ></vue-json-editor>
+              <div class="pt-2" v-if="credStatus">
+              <b-button @click="updateCredentialStatus('SUSPENDED')">Suspend VC</b-button>
+              <b-button class="ml-2 mr-2" @click="updateCredentialStatus('Live')">Live VC</b-button>
+              <b-button @click="updateCredentialStatus('REVOKED')">Revoke VC</b-button>
+              </div>
+            </b-tab>
+          </b-tabs>          
           </b-tab>
         </b-tabs>
       </b-card>
@@ -210,6 +250,9 @@
       ></json-viewer>
     </hf-pop-up>
     <hf-pop-up Header="Schema Register" Id="reg-schema" Size="xl">
+      <div class="text-center">
+      <p v-if="showSchemaRegStatus">View Schema<a class="ml-2" :href="`https://explorer.hypersign.id/hypersign-testnet/schemas/${signedSchema.id}`" target="_blank">{{signedSchema.id}}</a></p>
+      </div>
       <json-viewer
         :value="signedSchema"
         :expanded="true"
@@ -224,13 +267,21 @@
       <p>{{ didDoc }}</p>
     </hf-pop-up>
     <hf-pop-up Header="Issued Verifiable Credential" Id="issued-vc" Size="xl">
+      <div class="text-center">
+        <p>Click to View VC Status on blockchain</p>
+        <a      
+      v-if="issuedCred"
+      :href="`https://explorer.hypersign.id/hypersign-testnet/revocationRegistry/${issuedCred.id}`"
+      target="_blank"
+      >{{ issuedCred ? issuedCred.id : "" }}</a
+    >
+      </div>
       <json-viewer
         :value="issuedCred"
         :expanded="true"
         :depth="2"
         :copyable="true"
-      ></json-viewer>
-      <div class="text-center"></div>
+      ></json-viewer>          
     </hf-pop-up>
   </div>
 </template>
@@ -265,6 +316,9 @@ export default {
   components: { BTab, BTabs, hfPopUp, vueJsonEditor, Loading },
   data() {
     return {
+      vcId:'',
+      activeTab: 'tab1',
+      showSchemaRegStatus:false,
       allFields: [],
       schemaId: "",
       hypersignSchema: {},
@@ -313,6 +367,7 @@ export default {
       issuedCred: {},
       resolvedDiDDocument: {},
       issueCredAttributes: [],
+      credStatus:null
     };
   },
   async mounted() {
@@ -326,25 +381,59 @@ export default {
     this.offlineSigner = await createWallet(this.mnemonic);
     this.hypersigndid = new HypersignDID({
       offlineSigner: this.offlineSigner, // OPTIONAL signer of type OfflineSigner
-      nodeRestEndpoint: "https://api.jagrat.hypersign.id", // OPTIONAL RPC endpoint of the Hypersign blockchain, Default 'TEST'
-      nodeRpcEndpoint: "https://rpc.jagrat.hypersign.id", // OPTIONAL REST endpoint of the Hypersign blockchain
-      namespace: "testnet", // OPTIONAL namespace of did, Default ''
+      nodeRestEndpoint: HIDNODE_REST, // OPTIONAL RPC endpoint of the Hypersign blockchain, Default 'TEST'
+      nodeRpcEndpoint: HIDNODE_RPC, // OPTIONAL REST endpoint of the Hypersign blockchain
+      namespace:HIDNODE_NAMESPACE, // OPTIONAL namespace of did, Default ''
     });
     await this.hypersigndid.init();
     console.log(this.offlineSigner);
     this.hypersignSchema = new HypersignSchema({
       offlineSigner: this.offlineSigner, // OPTIONAL signer of type OfflineSigner
-      nodeRestEndpoint: "https://api.jagrat.hypersign.id", // OPTIONAL RPC endpoint of the Hypersign blockchain, Default 'TEST'
-      nodeRpcEndpoint: "https://rpc.jagrat.hypersign.id", // OPTIONAL REST endpoint of the Hypersign blockchain
-      namespace: "testnet", // OPTIONAL namespace of did, Default ''
+      nodeRestEndpoint: HIDNODE_REST, // OPTIONAL RPC endpoint of the Hypersign blockchain, Default 'TEST'
+      nodeRpcEndpoint: HIDNODE_RPC, // OPTIONAL REST endpoint of the Hypersign blockchain
+      namespace:HIDNODE_NAMESPACE, // OPTIONAL namespace of did, Default ''
     });
     console.log(this.hypersignSchema);
     await this.hypersignSchema.init();
+    this.hypersignVC = new HypersignVerifiableCredential({
+        offlineSigner: this.offlineSigner,
+        nodeRestEndpoint: HIDNODE_REST,
+        nodeRpcEndpoint: HIDNODE_RPC,
+        namespace:HIDNODE_NAMESPACE,
+      });
+    await this.hypersignVC.init();
+    console.log(this.hypersignVC)
   },
   methods: {
-    // redirectToExplorer(){
-    //   window.open(`https://explorer.hypersign.id/hypersign-testnet/identity/${this.didDoc.id}`,'_blank')
-    // },
+    async resolveVcStatus(){
+      const verificationResult = await this.hypersignVC.resolveCredentialStatus({credentialId:this.vcId});
+      console.log(verificationResult)
+      this.credStatus = verificationResult
+    },
+    async updateCredentialStatus(statusToUpdate){
+      try {
+        const params = {
+            credentialStatus:this.credStatus,
+            issuerDid: "did:hid:testnet:z49oshjFRVej8tWzfShGSnB3w1DN3gjUaXuUFR2BVJJeC",
+            verificationMethodId:"did:hid:testnet:z49oshjFRVej8tWzfShGSnB3w1DN3gjUaXuUFR2BVJJeC#key-1",
+            privateKeyMultibase:this.privateKey,
+            status: statusToUpdate, 
+            statusReason: 'Suspending this credential for some time',
+      };
+      const updatedCredResult = await this.hypersignVC.updateCredentialStatus(params);
+      console.log(updatedCredResult)
+      if(updatedCredResult.code === 0){
+        this.toast('Credential Status Updated Successfully','success')
+      }
+      } catch (error) {
+        this.toast(error,'error')
+      }
+      
+    },
+    goToTab(tab){
+      this.activeTab = tab
+      this.schemaId = this.signedSchema.id
+    },
     async resolveSchema() {
       if (this.schemaId === "") {
         return this.toast("Enter Schema ID", "error");
@@ -396,18 +485,22 @@ export default {
       console.log(this.issueCredAttributes);
     },
     async regSchema() {
+      console.log(this.hypersignSchema)
       const registeredSchema = await this.hypersignSchema.register({
         schema: this.signedSchema,
       });
       console.log(registeredSchema);
+      const {code} = registeredSchema
+      console.log(code)
+      if(code === 0){
+        this.showSchemaRegStatus = true
+        this.toast('Schema Registerd Successfully','success')
+      }
     },
     async regSchemaPopup() {
+      this.showSchemaRegStatus = false
       if (this.schemaBody.name !== "" && this.schemaBody.fields.length > 0) {
-        this.$root.$emit("bv::show::modal", "reg-schema");
-        const namespace = "testnet";
-        this.hypersignSchema = new HypersignSchema({ namespace });
-        console.log(this.hypersignSchema);
-
+        this.$root.$emit("bv::show::modal", "reg-schema");        
         const schemaToReg = await this.hypersignSchema.generate(
           this.schemaBody
         );
@@ -529,20 +622,21 @@ export default {
     },
     async updateDidDoc() {},
     async generateCred() {
-      this.hypersignVC = new HypersignVerifiableCredential({
-        offlineSigner: this.offlineSigner,
-        nodeRestEndpoint: HIDNODE_REST,
-        nodeRpcEndpoint: HIDNODE_RPC,
-        namespace: HIDNODE_NAMESPACE,
-      });
-      await this.hypersignVC.init();
+      try {
+      //    this.hypersignVC = new HypersignVerifiableCredential({
+      //   offlineSigner: this.offlineSigner,
+      //   nodeRestEndpoint: HIDNODE_REST,
+      //   nodeRpcEndpoint: HIDNODE_RPC,
+      //   namespace: HIDNODE_NAMESPACE,
+      // });
+      // await this.hypersignVC.init();
       console.log(this.hypersignVC);
       let attributeMap = [];
       let dataToSend;
       if (this.issueCredAttributes.length > 0) {
         this.issueCredAttributes.forEach((e) => {
           if (e.value === "") {
-            return this.toast("enter all attributes", "error");
+            throw new Error("enter value for credential attribute")
           }
           dataToSend = {
             [e.name]: e.value,
@@ -564,15 +658,31 @@ export default {
         expirationDate: "2027-12-10T18:30:00.000Z",
       };
       const credential = await this.hypersignVC.generate(credentialBody);
-      console.log(credential);
-      this.generatedVC = credential;
+      console.log(credential);      
+      return credential
+      } catch (error) {
+       return this.toast(error,'error')
+      }
+     
     },
     async issueCred() {
       // const diddoc = await this.hypersigndid.generate({
       //   publicKeyMultibase: this.publicKey,
       // });
       // console.log(diddoc);
-      await this.generateCred();
+      try {
+         if(this.didDoc===null){
+        throw new Error('Connect your Metamask and generate DID Document in DID Tab')
+      }
+      if(this.schemaId===""){
+        throw new Error('Enter the Schema ID and Resolve')
+      }
+      const credential = await this.generateCred();
+      console.log(credential)
+      if(credential===undefined){
+        throw new Error('Enter values for all credential attributes')
+      }      
+      this.generatedVC = credential;
       console.log(this.didDoc.verificationMethod[0].id);
       const tempIssueCredentialBody = {
         credential: this.generatedVC, // unsigned credential generated using `generated()` method
@@ -601,7 +711,16 @@ export default {
         "credentialStatusRegistrationResult",
         credentialStatusRegistrationResult
       );
+      this.vcId= this.issuedCred.id
+      if(credentialStatusRegistrationResult.code === 0){
+        this.toast('Credential Issued Successfully','success')
+      }
       this.$root.$emit("bv::show::modal", "issued-vc");
+      
+      } catch (error) {
+        this.toast(error,'error')
+      }
+     
     },
     addAttributes() {
       if (this.selectedAtt.name === "" || this.selectedAtt.type === null) {
@@ -631,6 +750,15 @@ export default {
 </script>
 
 <style scoped>
+@keyframes blink {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.blink {
+  animation: blink 1s infinite;
+}
 .selected-media-wrapper {
   border: 1px dashed;
   max-height: 100px;

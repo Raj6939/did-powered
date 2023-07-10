@@ -7,6 +7,7 @@ module.exports = {
     config.resolve.set("fallback",{
       crypto: require.resolve("crypto-browserify"),
       stream:require.resolve("stream-browserify"),      
+      console: false,
       fs:false,
       path:false
     });
