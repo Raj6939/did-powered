@@ -200,10 +200,14 @@
                 @json-change="onJsonChange"
               ></vue-json-editor>
             </div>
-            <b-button class="mr-4 mt-4" @click="issueCred"
+            <div class="mr-4 mt-4">
+            <b-button @click="issueCred"
+              v-if="issueCredAttributes.length"
               >Sign and Issue VC</b-button
-            >
-            </b-tab>
+            >     
+            <b-button class="ml-2" v-if="issuedCred!==null" @click="syncEdv">Store Credential in EDV</b-button>            
+            </div>                   
+            </b-tab>            
             <b-tab title="Resolve Credential"
             :active="activeTab === 'tab4'">
               <div class="form-group row pt-4">
@@ -235,6 +239,28 @@
               <b-button class="ml-2 mr-2" @click="updateCredentialStatus('Live')">Live VC</b-button>
               <b-button @click="updateCredentialStatus('REVOKED')">Revoke VC</b-button>
               </div>
+            </b-tab>
+            <b-tab title="Fetch Credential"
+            :active="activeTab === 'tab5'">
+              <div class="text-right mt-4">                
+                <b-button @click="fetchAllVcFn">Fetch All VC from EDV</b-button>                
+            </div> 
+            <div class="row mt-4 ml-4">
+            <div v-for="(cred, index) in fetchEncryptedCred" :key="index">
+            <b-card
+              title="Encrypted Cred"              
+              tag="article"
+              style="max-width: 20rem;"
+              class="mb-2 mr-3"
+            >
+              <b-card-text>
+                {{cred.id}}
+              </b-card-text>
+
+              <b-button variant="primary" @click="decryptVc(cred)">Decrypt VC</b-button>
+            </b-card>
+            </div>
+            </div>
             </b-tab>
           </b-tabs>          
           </b-tab>
@@ -283,6 +309,15 @@
         :copyable="true"
       ></json-viewer>          
     </hf-pop-up>
+    <!--  -->
+    <hf-pop-up Header="Decrypted Verifiable Credential" Id="decrypted-vc" Size="xl">      
+      <json-viewer
+        :value="showDecryptedCred"
+        :expanded="true"
+        :depth="2"
+        :copyable="true"
+      ></json-viewer>          
+    </hf-pop-up>
   </div>
 </template>
 
@@ -311,11 +346,17 @@ import { Buffer } from "buffer";
 import isEqual from "lodash/isEqual";
 window.Buffer = Buffer;
 import toast from "../utils/toast";
+import {HypersignEdvClientEcdsaSecp256k1} from "@hypersign-protocol/hypersign-vault-client";
+import multibase from "multibase";
 export default {
   name: "HelloWorld",
   components: { BTab, BTabs, hfPopUp, vueJsonEditor, Loading },
   data() {
     return {
+      showDecryptedCred:null,
+      publicKeyMultibase:'',
+      edvClient:{},
+      userPublicKeyMultibase:'',
       vcId:'',
       activeTab: 'tab1',
       showSchemaRegStatus:false,
@@ -364,16 +405,17 @@ export default {
       generatedVC: null,
       signedVC: {},
       hypersignVC: {},
-      issuedCred: {},
+      issuedCred: null,
       resolvedDiDDocument: {},
       issueCredAttributes: [],
-      credStatus:null
+      credStatus:null,
+      keyAgreementKeyPair:{},
+      fetchEncryptedCred:[]
     };
   },
   async mounted() {
     const namespace = "testnet";
-    this.hypersignDID = new HypersignDID({ namespace });
-    console.log(this.hypersignDID);
+    this.hypersignDID = new HypersignDID({ namespace });    
     const seed = Bip39.decode(this.mnemonic, 1);
     const keyPair = await this.hypersignDID.generateKeys({ seed });
     this.publicKey = keyPair.publicKeyMultibase;
@@ -385,15 +427,13 @@ export default {
       nodeRpcEndpoint: HIDNODE_RPC, // OPTIONAL REST endpoint of the Hypersign blockchain
       namespace:HIDNODE_NAMESPACE, // OPTIONAL namespace of did, Default ''
     });
-    await this.hypersigndid.init();
-    console.log(this.offlineSigner);
+    await this.hypersigndid.init();    
     this.hypersignSchema = new HypersignSchema({
       offlineSigner: this.offlineSigner, // OPTIONAL signer of type OfflineSigner
       nodeRestEndpoint: HIDNODE_REST, // OPTIONAL RPC endpoint of the Hypersign blockchain, Default 'TEST'
       nodeRpcEndpoint: HIDNODE_RPC, // OPTIONAL REST endpoint of the Hypersign blockchain
       namespace:HIDNODE_NAMESPACE, // OPTIONAL namespace of did, Default ''
-    });
-    console.log(this.hypersignSchema);
+    });    
     await this.hypersignSchema.init();
     this.hypersignVC = new HypersignVerifiableCredential({
         offlineSigner: this.offlineSigner,
@@ -401,14 +441,32 @@ export default {
         nodeRpcEndpoint: HIDNODE_RPC,
         namespace:HIDNODE_NAMESPACE,
       });
-    await this.hypersignVC.init();
-    console.log(this.hypersignVC)
+    await this.hypersignVC.init();    
   },
   methods: {
+    async fetchAllVcFn(){
+      try {
+        if(!this.didDoc){
+          throw new Error('Connect Metamask in DID tab')
+        }
+        const allVc = await this.edvClient.fetchAllDocs({
+        edvId: `hs:edv:${this.didDoc.id}`
+      })      
+      this.fetchEncryptedCred = allVc      
+      } catch (error) {
+        this.toast(error,'error')
+      }     
+    },
     async resolveVcStatus(){
-      const verificationResult = await this.hypersignVC.resolveCredentialStatus({credentialId:this.vcId});
-      console.log(verificationResult)
-      this.credStatus = verificationResult
+      try {
+        if(this.vcId===""){
+          throw new Error('Enter VC Id')
+        }
+      const verificationResult = await this.hypersignVC.resolveCredentialStatus({credentialId:this.vcId});      
+      this.credStatus = verificationResult  
+      } catch (error) {
+        this.toast(error,'error')
+      }      
     },
     async updateCredentialStatus(statusToUpdate){
       try {
@@ -420,8 +478,7 @@ export default {
             status: statusToUpdate, 
             statusReason: 'Suspending this credential for some time',
       };
-      const updatedCredResult = await this.hypersignVC.updateCredentialStatus(params);
-      console.log(updatedCredResult)
+      const updatedCredResult = await this.hypersignVC.updateCredentialStatus(params);      
       if(updatedCredResult.code === 0){
         this.toast('Credential Status Updated Successfully','success')
       }
@@ -441,11 +498,9 @@ export default {
       this.issueCredAttributes = [];
       const result = await this.hypersignSchema.resolve({
         schemaId: this.schemaId,
-      });
-      console.log(result);
+      });      
       this.allFields = JSON.parse(result.schema.properties);
-      const requiredFields = result.schema.required;
-      console.log(requiredFields);
+      const requiredFields = result.schema.required;      
       for (const e of Object.entries(this.allFields)) {
         let dataToPush = {
           type: e[1].type,
@@ -469,10 +524,8 @@ export default {
             break;
           default:
             this.toast("invalid type", "error");
-        }
-        console.log(dataToPush);
-        this.issueCredAttributes.push(dataToPush);
-        console.log(this.issueCredAttributes);
+        }        
+        this.issueCredAttributes.push(dataToPush);        
       }
       this.issueCredAttributes.map((x) => {
         if (requiredFields.includes(x.name)) {
@@ -480,18 +533,13 @@ export default {
         } else {
           x["required"] = false;
         }
-      });
-      console.log(this.allFields);
-      console.log(this.issueCredAttributes);
+      }); 
     },
-    async regSchema() {
-      console.log(this.hypersignSchema)
+    async regSchema() {      
       const registeredSchema = await this.hypersignSchema.register({
         schema: this.signedSchema,
-      });
-      console.log(registeredSchema);
-      const {code} = registeredSchema
-      console.log(code)
+      });      
+      const {code} = registeredSchema      
       if(code === 0){
         this.showSchemaRegStatus = true
         this.toast('Schema Registerd Successfully','success')
@@ -503,15 +551,13 @@ export default {
         this.$root.$emit("bv::show::modal", "reg-schema");        
         const schemaToReg = await this.hypersignSchema.generate(
           this.schemaBody
-        );
-        console.log(schemaToReg);
+        );        
         this.signedSchema = await this.hypersignSchema.sign({
           privateKeyMultibase: this.privateKey,
           schema: schemaToReg,
           verificationMethodId:
             "did:hid:testnet:z49oshjFRVej8tWzfShGSnB3w1DN3gjUaXuUFR2BVJJeC#key-1",
-        });
-        console.log(this.signedSchema);
+        });        
       } else {
         this.toast("Enter necessary details to reg Schema", "error");
       }
@@ -522,8 +568,7 @@ export default {
       if (actionIndex > -1) {
         this.attributes.splice(actionIndex, 1);
         this.schemaBody.fields.splice(actionIndex, 1);
-      }
-      console.log(attr);
+      }     
     },
     copy() {
       if (this.didDoc) {
@@ -537,10 +582,9 @@ export default {
           });
       }
     },
-    onJsonChange(newCode) {
-      console.log(newCode);
+    onJsonChange(newCode) {      
       let hasChanged = !isEqual(newCode, this.didDoc);
-      console.log(hasChanged);
+    console.log(hasChanged);
 
       // if( !== oldDiD)
       // {
@@ -558,40 +602,90 @@ export default {
     },
     async connectMetamask() {
       const web3 = await loadweb3(1);
-      const accounts = await web3.eth.getAccounts();
-      console.log(accounts);
+      const accounts = await web3.eth.getAccounts();      
+      const publicKey = await ethereum.request({ method: 'eth_getEncryptionPublicKey', params: [accounts[0]] });
+      this.userPublicKeyMultibase=publicKey      
       this.address = accounts[0];
+      await this.generateDiD()
     },
-    async generateDiD() {
-      // this.isLoading = true/
-
+    async generateDiD() {      
       const genDiD = await this.hypersignDID.createByClientSpec({
         methodSpecificId: this.address,
         publicKey: this.address,
         chainId: "0x1",
         keyType: "EcdsaSecp256k1RecoveryMethod2020",
         address: this.address,
-      });
-      console.log(genDiD);
-      this.didDoc = genDiD;
-      console.log(this.didDoc);
-      // this.isLoading = false
+      });      
+      this.didDoc = genDiD;         
+      const verificationMethod = {
+        id: this.didDoc.id+'#'+`eip155:1:${this.address}`,
+        type: 'EcdsaSecp256k1RecoveryMethod2020',
+        controller: this.didDoc.id,
+        blockchainAccountId: `eip155:1:${this.address}`,
+    }        
+      this.publicKeyMultibase=this.base64toMultibase58(this.userPublicKeyMultibase)
+      this.keyAgreementKeyPair = {
+        id: this.didDoc.id+'#'+this.publicKeyMultibase,
+        type: 'X25519KeyAgreementKeyEIP5630',
+        controller: this.didDoc.id,
+        publicKeyMultibase:this.publicKeyMultibase,
+    }    
+      this.edvClient = new HypersignEdvClientEcdsaSecp256k1({
+        url:'https://stage.hypermine.in/vault',
+        keyAgreement:this.keyAgreementKeyPair,        
+        verificationMethod
+      })    
+      const config = {
+        edvId:`hs:edv:${this.didDoc.id}`,
+        verificationMethod: verificationMethod,
+        keyAgreement:this.keyAgreementKeyPair
+      }      
+      await this.edvClient.registerEdv(config)     
+    },
+    async syncEdv(){
+      const res1 = await this.edvClient.insertDoc({
+        document:this.issuedCred,
+        edvId: `hs:edv:${this.didDoc.id}`,
+        recipients: [{
+            id:this.didDoc.id.split('#')[0] + '#' + this.keyAgreementKeyPair.publicKeyMultibase,
+            type:'X25519KeyAgreementKeyEIP5630',
+            }],
+    })
+    console.log(res1)
+    },
+    async decryptVc(encCred){
+      this.showDecryptedCred = null
+      try {
+        const decryptDoc = await this.edvClient.decryptDocument({
+          encryptedDocument:encCred.encryptedData,
+          recipient:{
+              id: this.keyAgreementKeyPair.id,
+              type: 'X25519KeyAgreementKeyEIP5630'
+          }
+        })      
+      this.showDecryptedCred = decryptDoc
+      this.$root.$emit("bv::show::modal", "decrypted-vc"); 
+      } catch (error) {
+        this.toast(error,'error')
+      }     
+    },
+    base64toMultibase58(base64) {
+      const buffer = Buffer.from(base64, 'base64');
+      const base58 = multibase.encode('base58btc', buffer);      
+      return Buffer.from(base58).toString();
     },
     async resolveDiDDoc() {
       this.resolvedDiDDocument = await this.hypersigndid.resolve({
         did: this.didDoc.id,
-      });
-      console.log("re", this.resolvedDiDDocument);
-      this.$root.$emit("bv::show::modal", "view-didDoc");
-      // this.didDoc = this.resolvedDiDDocument
+      });      
+      this.$root.$emit("bv::show::modal", "view-didDoc");      
     },
     async signAndRegDiDDoc() {
       try {
         const web3Instance = new Web3(window.web3.currentProvider);
         const accounts = await window.ethereum.request({
           method: "eth_requestAccounts",
-        });
-        console.log(accounts);
+        });        
         window.web3 = web3Instance;
 
         this.signedDiDDOC = await this.hypersigndid.signByClientSpec({
@@ -599,38 +693,25 @@ export default {
           clientSpec: "eth-personalSign",
           address: accounts[0],
           web3: web3Instance,
-        });
-        console.log(this.signedDiDDOC);
+        });        
         const signInfos = [
           {
             verification_method_id: this.didDoc.verificationMethod[0].id,
             signature: this.signedDiDDOC.signature,
             clientSpec: { type: "eth-personalSign" },
           },
-        ];
-        console.log(signInfos);
-        console.log(this.signedDiDDOC);
+        ];       
         const result = await this.hypersigndid.registerByClientSpec({
           didDocument: this.signedDiDDOC.didDocument,
           signInfos,
-        });
-        console.log(result);
-      } catch (error) {
-        console.log(error);
+        });        
+      } catch (error) {        
         this.toast(error, "error");
       }
     },
     async updateDidDoc() {},
     async generateCred() {
-      try {
-      //    this.hypersignVC = new HypersignVerifiableCredential({
-      //   offlineSigner: this.offlineSigner,
-      //   nodeRestEndpoint: HIDNODE_REST,
-      //   nodeRpcEndpoint: HIDNODE_RPC,
-      //   namespace: HIDNODE_NAMESPACE,
-      // });
-      // await this.hypersignVC.init();
-      console.log(this.hypersignVC);
+      try {            
       let attributeMap = [];
       let dataToSend;
       if (this.issueCredAttributes.length > 0) {
@@ -640,15 +721,11 @@ export default {
           }
           dataToSend = {
             [e.name]: e.value,
-          };
-          console.log(dataToSend);
-          attributeMap.push(dataToSend);
-          console.log(attributeMap);
+          };          
+          attributeMap.push(dataToSend);         
         });
-      }
-      console.log(attributeMap);
-      const objj = Object.assign({}, ...attributeMap);
-      console.log(objj);
+      }      
+      const objj = Object.assign({}, ...attributeMap);     
       const credentialBody = {
         schemaId: this.schemaId,
         subjectDid: this.didDoc.id,
@@ -657,8 +734,7 @@ export default {
         fields: objj,
         expirationDate: "2027-12-10T18:30:00.000Z",
       };
-      const credential = await this.hypersignVC.generate(credentialBody);
-      console.log(credential);      
+      const credential = await this.hypersignVC.generate(credentialBody);      
       return credential
       } catch (error) {
        return this.toast(error,'error')
@@ -666,10 +742,6 @@ export default {
      
     },
     async issueCred() {
-      // const diddoc = await this.hypersigndid.generate({
-      //   publicKeyMultibase: this.publicKey,
-      // });
-      // console.log(diddoc);
       try {
          if(this.didDoc===null){
         throw new Error('Connect your Metamask and generate DID Document in DID Tab')
@@ -677,13 +749,11 @@ export default {
       if(this.schemaId===""){
         throw new Error('Enter the Schema ID and Resolve')
       }
-      const credential = await this.generateCred();
-      console.log(credential)
+      const credential = await this.generateCred();     
       if(credential===undefined){
         throw new Error('Enter values for all credential attributes')
       }      
-      this.generatedVC = credential;
-      console.log(this.didDoc.verificationMethod[0].id);
+      this.generatedVC = credential;      
       const tempIssueCredentialBody = {
         credential: this.generatedVC, // unsigned credential generated using `generated()` method
         issuerDid:
@@ -695,8 +765,7 @@ export default {
 
       const issuedCredResult = await this.hypersignVC.issue(
         tempIssueCredentialBody
-      );
-      console.log(issuedCredResult);
+      );      
       this.issuedCred = issuedCredResult.signedCredential;
       const {
         signedCredential,
@@ -707,10 +776,7 @@ export default {
       console.log("signedCredential", signedCredential);
       console.log("credentialStatus", credentialStatus);
       console.log("credentialStatusProof", credentialStatusProof);
-      console.log(
-        "credentialStatusRegistrationResult",
-        credentialStatusRegistrationResult
-      );
+      console.log("credentialStatusRegistrationResult",credentialStatusRegistrationResult);
       this.vcId= this.issuedCred.id
       if(credentialStatusRegistrationResult.code === 0){
         this.toast('Credential Issued Successfully','success')
@@ -722,18 +788,17 @@ export default {
       }
      
     },
+    
     addAttributes() {
       if (this.selectedAtt.name === "" || this.selectedAtt.type === null) {
         return this.toast("Enter Atrribute fields", "error");
       }
-      this.attributes.push(this.selectedAtt);
-      // fields: [{ name: 'name', type: 'string', isRequired: false }],
+      this.attributes.push(this.selectedAtt);      
       const obj = {
         name: this.selectedAtt.name,
         type: this.selectedAtt.type,
         isRequired: this.selectedAtt.required,
-      };
-      console.log(obj);
+      };      
       this.schemaBody.fields.push(obj);
       this.clearAttrField();
     },
