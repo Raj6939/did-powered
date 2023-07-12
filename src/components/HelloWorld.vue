@@ -5,35 +5,85 @@
       :active.sync="isLoading"
       :can-cancel="true"
       :is-full-page="fullPage"
-    ></loading>
-    <a
-      class="pt-4"
-      v-if="didDoc"
-      :href="`https://explorer.hypersign.id/hypersign-testnet/identity/${didDoc.id}`"
-      target="_blank"
-      >{{ didDoc ? didDoc.id : "" }}</a
-    >
+    ></loading>    
     <div class="container">
-      <b-card class="custom-card">
-        <b-tabs>
-          <b-tab title="DID"
-          :active="activeTab === 'tab1'">
-            <b-button class="mt-4" @click="connectMetamask">{{
-              address ? address : "Connect Metamask"
+       <b-button class="mt-4 mb-2" variant="primary" @click="connectMetamask" style="float:right;">{{
+              address ? truncate1(address,15) : "Connect Metamask"
             }}</b-button>
+      <b-card class="custom-card" v-if="didDoc">
+        <div class="mt-2 text-center">             
+                    <div class="form-group row pt-4">
+            <label class="col-sm-2 col-form-label"><strong>DID:</strong></label>             
+              <div style="text-align:center; justify-content: center;" class="didbox pt-2">{{didDoc.id}}</div>
+          </div>
+        <a
+          class="pt-2"
+          v-if="didDoc"
+          :href="`https://explorer.hypersign.id/hypersign-testnet/identity/${didDoc.id}`"
+          target="_blank"
+          >Click to see your DID Document</a
+        >
+        </div>
+        <b-card
+        class="mt-4">
+        <div class="text-left">
+          <h4><strong> Your EDV Config </strong></h4>        
+          <div class="form-group row pt-4">
+            <label class="col-sm-2 col-form-label"><strong>EDV ID:</strong></label>
+            <div class="col-sm-10 d-flex align-items-center">
+              <p class="mb-0">hs:edv:{{didDoc.id}}</p>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label"><strong>Controller:</strong></label>
+            <div class="col-sm-10 d-flex align-items-center">
+              <p class="mb-0">{{edvClient.verificationMethod.controller}}</p>
+            </div>
+          </div>
+          <!-- <div class="form-group row">
+            <label class="col-sm-2 col-form-label"><strong>EDV ID:</strong></label>
+            <div class="col-sm-10 d-flex align-items-center">
+              <p class="mb-0">hs:edv:{{didDoc.id}}</p>
+            </div>
+          </div> -->
+        </div>
+        <div class="text-right">
+        <b-button variant="primary" @click="fetchAllVcFn">Fetch Your Documents</b-button>
+        </div>
+        </b-card>
+        <b-card v-if="fetchEncryptedCred.length" class="mt-4">
+          <h4 class="text-left"><strong> Your Encrypted Credetials </strong></h4>
+          <div class="row mt-4 ml-4">
+            <div v-for="(cred, index) in fetchEncryptedCred" :key="index">
+            <b-card
+              title="Encrypted Cred"              
+              tag="article"
+              style="max-width: 20rem;"
+              class="mb-2 mr-3"
+            >
+              <b-card-text>
+                {{cred.id}}
+              </b-card-text>
+
+              <b-button variant="primary" @click="decryptVc(cred)">Decrypt VC</b-button>
+            </b-card>
+            </div>
+            </div>
+        </b-card>
+        <!-- <b-tabs>
+          <b-tab title="DID"
+          :active="activeTab === 'tab1'">            
             <br />
             <b-button class="mt-4" v-if="address" @click="generateDiD"
               >Generate DiD Document</b-button
             >
-            <div :class="didDoc ? 'didDocContainer' : ''" v-if="didDoc">
-              <!-- <p v-if="didDoc">{{ preetyfyDoc(didDoc) }}</p> -->
+            <div :class="didDoc ? 'didDocContainer' : ''" v-if="didDoc">              
               <div class="d-flex">
                 <p>Generated DID Document</p>
                 <a class="ml-auto" style="cursor: pointer" @click="copy"
                   >Copy</a
                 >
               </div>
-              <!-- <json-viewer v-if="didDoc" :value="didDoc" :expanded="true" :depth="2" :copyable="true"></json-viewer>         -->
               <vue-json-editor
                 v-model="didDoc"
                 :show-btns="false"
@@ -91,8 +141,7 @@
                 <div
                   class="selected-media-wrapper d-flex p-2 mb-4"
                   style="overflow-y: auto"
-                  v-if="attributes.length > 0"
-                >
+                  v-if="attributes.length > 0">
                   <div v-for="(attr, index) in attributes" :key="index">
                     <div
                       :class="
@@ -264,7 +313,7 @@
             </b-tab>
           </b-tabs>          
           </b-tab>
-        </b-tabs>
+        </b-tabs> -->
       </b-card>
     </div>
     <hf-pop-up Header="Resolved DID Document" Id="view-didDoc" Size="xl">
@@ -308,8 +357,7 @@
         :depth="2"
         :copyable="true"
       ></json-viewer>          
-    </hf-pop-up>
-    <!--  -->
+    </hf-pop-up>    
     <hf-pop-up Header="Decrypted Verifiable Credential" Id="decrypted-vc" Size="xl">      
       <json-viewer
         :value="showDecryptedCred"
@@ -337,6 +385,7 @@ import {
   HIDNODE_RPC,
   HIDNODE_REST,
   HIDNODE_NAMESPACE,
+  truncate
   // BUSINESS_SCHEMA,
 } from "../utils/hsConstants";
 import { Bip39 } from "@cosmjs/crypto";
@@ -809,7 +858,13 @@ export default {
         required: false,
       };
     },
+     truncate1(str, number) {
+    console.log(str,number)
+      return truncate(str, number);
+    },
   },
+ 
+  
   mixins: [toast],
 };
 </script>
@@ -820,7 +875,15 @@ export default {
   50% { opacity: 0; }
   100% { opacity: 1; }
 }
-
+.didbox{  
+  padding: auto;
+  text-align: center;
+  justify-content: center;
+  width: 50rem;
+  border-radius: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.125);
+  text-align: center;
+}
 .blink {
   animation: blink 1s infinite;
 }
