@@ -1,19 +1,13 @@
+const NodePolyfillPlugin = require('node-polyfill-webpack-plugin')
+
+
 module.exports = {
-  lintOnSave:false,
-  publicPath: process.env.NODE_ENV === 'production'
-    ? '/'
-    : '/',
-  chainWebpack: config => {
-    config.resolve.set("fallback",{
-      crypto: require.resolve("crypto-browserify"),
-      stream:require.resolve("stream-browserify"),      
-      console: false,
-      fs:false,
-      path:false
-    });
-      config.plugins.delete("prefetch");
-    },
+  configureWebpack: {
+    plugins: [
+      new NodePolyfillPlugin()
+    ]
+  },
   devServer: {
-      port: 9002
-    }
+    port:9002
+  }
 }
