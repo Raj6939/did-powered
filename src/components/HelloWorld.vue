@@ -40,12 +40,6 @@
               <p class="mb-0">{{edvClient.verificationMethod.controller}}</p>
             </div>
           </div>
-          <!-- <div class="form-group row">
-            <label class="col-sm-2 col-form-label"><strong>EDV ID:</strong></label>
-            <div class="col-sm-10 d-flex align-items-center">
-              <p class="mb-0">hs:edv:{{didDoc.id}}</p>
-            </div>
-          </div> -->
         </div>
         <div class="text-right">
         <b-button variant="primary" @click="fetchAllVcFn">Fetch Your Documents</b-button>
@@ -70,6 +64,8 @@
             </div>
             </div>
         </b-card>
+
+        <!-- /////////////////////////////////////////////////////// -->
         <!-- <b-tabs>
           <b-tab title="DID"
           :active="activeTab === 'tab1'">            
@@ -370,7 +366,6 @@
 </template>
 
 <script>
-import { BTab, BTabs } from "bootstrap-vue";
 import {
   HypersignDID,
   HypersignSchema,
@@ -380,6 +375,8 @@ import loadweb3 from "../utils/web3Instance";
 import Web3 from "web3";
 import { createWallet } from "../utils/createWallet";
 import Loading from "vue-loading-overlay";
+import {Buffer} from "buffer"
+window.Buffer = Buffer
 // import 'vue-loading-overlay/dist/css/index.css';
 import {
   HIDNODE_RPC,
@@ -390,16 +387,12 @@ import {
 } from "../utils/hsConstants";
 import { Bip39 } from "@cosmjs/crypto";
 import hfPopUp from "@/elements/hfPopUp.vue";
-import vueJsonEditor from "vue-json-editor";
-import { Buffer } from "buffer";
-import isEqual from "lodash/isEqual";
-window.Buffer = Buffer;
 import toast from "../utils/toast";
 import {HypersignEdvClientEcdsaSecp256k1} from "@hypersign-protocol/hypersign-vault-client";
 import multibase from "multibase";
 export default {
   name: "HelloWorld",
-  components: { BTab, BTabs, hfPopUp, vueJsonEditor, Loading },
+  components: {hfPopUp, Loading },
   data() {
     return {
       showDecryptedCred:null,
@@ -631,28 +624,10 @@ export default {
           });
       }
     },
-    onJsonChange(newCode) {      
-      let hasChanged = !isEqual(newCode, this.didDoc);
-    console.log(hasChanged);
-
-      // if( !== oldDiD)
-      // {
-      //   console.log('not same')
-      // }
-      // if(newDID===oldDiD){
-      //   console.log('yes')
-      //   console.log(this.didDoc)
-      //   console.log(newCode)
-      //   this.showUpdateButton = false
-      // }else{
-      //   console.log('else')
-      //   this.showUpdateButton = true
-      // }
-    },
     async connectMetamask() {
       const web3 = await loadweb3(1);
       const accounts = await web3.eth.getAccounts();      
-      const publicKey = await ethereum.request({ method: 'eth_getEncryptionPublicKey', params: [accounts[0]] });
+      const publicKey = await window.ethereum.request({ method: 'eth_getEncryptionPublicKey', params: [accounts[0]] });
       this.userPublicKeyMultibase=publicKey      
       this.address = accounts[0];
       await this.generateDiD()
@@ -662,7 +637,7 @@ export default {
         methodSpecificId: this.address,
         publicKey: this.address,
         chainId: "0x1",
-        keyType: "EcdsaSecp256k1RecoveryMethod2020",
+        clientSpec:'eth-personalSign',
         address: this.address,
       });      
       this.didDoc = genDiD;         
@@ -754,6 +729,7 @@ export default {
           didDocument: this.signedDiDDOC.didDocument,
           signInfos,
         });        
+        console.log(result)
       } catch (error) {        
         this.toast(error, "error");
       }
