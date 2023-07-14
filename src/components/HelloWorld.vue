@@ -34,7 +34,7 @@
           >
         </div>
         <!-- /////////////////////////////////////////////////////////////////////////////////////// -->
-        <!-- <b-card class="mt-4">
+        <b-card class="mt-4">
           <div class="text-left">
             <h4><strong> Your EDV Config </strong></h4>
             <div class="form-group row pt-4">
@@ -84,10 +84,10 @@
               </b-card>
             </div>
           </div>
-        </b-card> -->
+        </b-card>
 
         <!-- /////////////////////////////////////////////////////// -->
-        <b-tabs>
+        <!-- <b-tabs>
           <b-tab title="DID" :active="activeTab === 'tab1'">
             <br />
             <b-button class="mt-4" v-if="address" @click="generateDiD"
@@ -361,7 +361,7 @@
               </b-tab>
             </b-tabs>
           </b-tab>
-        </b-tabs>
+        </b-tabs> -->
       </b-card>
     </div>
     <hf-pop-up Header="Resolved DID Document" Id="view-didDoc" Size="xl">
@@ -440,7 +440,7 @@ import { createWallet } from "../utils/createWallet";
 import Loading from "vue-loading-overlay";
 import { Buffer } from "buffer";
 window.Buffer = Buffer;
-import vueJsonEditor from "vue-json-editor";
+// import vueJsonEditor from "vue-json-editor";
 // import 'vue-loading-overlay/dist/css/index.css';
 import {
   HIDNODE_RPC,
@@ -456,7 +456,7 @@ import { HypersignEdvClientEcdsaSecp256k1 } from "@hypersign-protocol/hypersign-
 import multibase from "multibase";
 export default {
   name: "HelloWorld",
-  components: { hfPopUp, Loading,vueJsonEditor },
+  components: { hfPopUp, Loading },
   data() {
     return {
       showDecryptedCred: null,
@@ -772,7 +772,7 @@ export default {
             type: "X25519KeyAgreementKeyEIP5630",
           },
         });
-        this.showDecryptedCred = decryptDoc;
+        this.showDecryptedCred = decryptDoc.content;
         this.$root.$emit("bv::show::modal", "decrypted-vc");
       } catch (error) {
         this.toast(error, "error");
